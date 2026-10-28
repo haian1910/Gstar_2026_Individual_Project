@@ -53,13 +53,13 @@
 
 \vspace{-1.5em}
 \begin{abstract}
-Reasoning models write tens of thousands of tokens per answer, and the attention cache that stores this text dominates their memory. Hybrid models such as Qwen3.5 replace most attention layers with recurrent layers of fixed size, but the few attention layers that remain still store every token, and in Qwen3.5-9B they hold 95\% of a sample's memory at 32K tokens. Simply forgetting old tokens does not work: in our earlier project it cost 40 points of math accuracy. We propose \emph{Fade}: keep the prompt and the most recent tokens exact, and store all older tokens at 2 or 4 bits. Fade needs no training and leaves the recurrent layers untouched. On 120 competition math problems, 4-bit Fade shows no detectable loss against full attention with just over a third of its memory. 2-bit Fade loses about 6 points, but it beats a window of equal memory that keeps the prompt (a modest gain, seen in only one of two seed pairs) and is far better than StreamingLLM. When Fade fails, the model does not give wrong answers; it reasons for longer and runs out of tokens. Memory savings are confirmed with real packed low-bit storage; we make no speed claim. Code and run data: \url{https://github.com/haian1910/Gstar_2026_Individual_Project}.
+Reasoning models write tens of thousands of tokens per answer, and the attention cache that stores this text dominates their memory. Hybrid models such as Qwen3.5 replace most attention layers with recurrent layers of fixed size, but the few attention layers that remain still store every token, and in Qwen3.5-9B they hold 95\% of a sample's memory (analytic) at 32K tokens. Simply forgetting old tokens does not work: in our earlier project it cost 40 points of math accuracy. We propose \emph{Fade}: keep the prompt and the most recent tokens exact, and store all older tokens at 2 or 4 bits. Fade needs no training and leaves the recurrent layers untouched. On 120 competition math problems, 4-bit Fade shows no detectable loss against full attention with just over a third of its analytic memory. 2-bit Fade loses about 6 points, but it beats an 8K window that keeps the prompt, with 30\% less analytic memory (a modest gain; a post hoc split puts all of it in one of two seed pairs), and it is far better than StreamingLLM (2 samples per problem). When 2-bit Fade fails, the model does not give wrong answers; it reasons for longer and runs out of tokens. Accuracy comes from emulated quantization; memory is analytic, and a benchmark with real packed storage agrees with it to within the pre-registered 10\%; we make no speed claim. Code and run data: \url{https://github.com/haian1910/Gstar_2026_Individual_Project}.
 \end{abstract}
 
 \vspace{-0.6em}
 \section{Introduction}
 \vspace{-0.4em}
-Long chains of thought buy accuracy with tokens: competition math traces run to 20K--30K tokens. During generation, the model stores the keys and values (KV) of every token so that later tokens can attend to them, and this \emph{KV cache} grows with every token. \emph{Hybrid} models reduce this cost by replacing most attention layers with linear recurrent layers, which summarize the past in a fixed-size state. Qwen3.5-9B~\cite{qwen35} repeats a block of 3 Gated DeltaNet (GDN)~\cite{gdn} layers and 1 full-attention (FA) layer 8 times (Figure~\ref{fig:hybrid}a). The 24 GDN layers keep a fixed 49\,MiB state per sample, but the 8 FA layers still cache 32\,KiB per token: at 32K tokens that is 1\,GiB, 95\% of the sample's memory (Figure~\ref{fig:hybrid}b).
+Long chains of thought buy accuracy with tokens: competition math traces run to 20K--30K tokens. During generation, the model stores the keys and values (KV) of every token so that later tokens can attend to them, and this \emph{KV cache} grows with every token. \emph{Hybrid} models reduce this cost by replacing most attention layers with linear recurrent layers, which summarize the past in a fixed-size state. Qwen3.5-9B~\cite{qwen35} repeats a block of 3 Gated DeltaNet (GDN)~\cite{gdn} layers and 1 full-attention (FA) layer 8 times (Figure~\ref{fig:hybrid}a). The 24 GDN layers keep a fixed 49\,MiB state per sample, but the 8 FA layers still cache 32\,KiB per token: at 32K tokens that is 1\,GiB, 95\% of the sample's analytic memory (Figure~\ref{fig:hybrid}b).
 
 \begin{figure}[h]
 \centering
@@ -70,19 +70,19 @@ Long chains of thought buy accuracy with tokens: competition math traces run to 
 \vspace{-0.6em}
 \end{figure}
 
-The obvious fix is to forget. In our previous project, Think-Local, the FA layers saw only the prompt and the last 2K generated tokens. Math accuracy fell by 40 points. The runs that finished were almost always right; the loss came from runs that never finished within the token limit. Exploratory attention maps suggest why no small fix exists: every attention head reads far back into the trace, so there is no small set of ``long-range'' heads to keep exact (Appendix~\ref{app:tl}).
+The obvious fix is to forget. In our previous project, Think-Local, the FA layers saw only the prompt and the last 2K generated tokens. Math accuracy fell by 40 points. The runs that finished were almost always right; the loss came from runs that never finished within the token limit. Exploratory attention maps (not audited) suggest that no small fix exists: every attention head reads far back into the trace, so there is no small set of ``long-range'' heads to keep exact (Appendix~\ref{app:tl}).
 
-If every head needs old tokens, a cheaper memory has to keep all of them, just less precisely. \emph{Fade} keeps the prompt and the recent tokens exact and stores everything older at 2 or 4 bits (Figure~\ref{fig:schematic}). We ask two questions: how close does Fade come to full attention, and how does it compare, at the same memory, with the standard ways to bound the cache? Our contributions:
+If every head needs old tokens, a cheaper memory has to keep all of them, just less precisely. \emph{Fade} keeps the prompt and the recent tokens exact and stores everything older at 2 or 4 bits (Figure~\ref{fig:schematic}). We ask two questions: how close does Fade come to full attention, and how does it compare, at matched memory, with the standard ways to bound the cache? Our contributions:
 \begin{itemize}\setlength{\itemsep}{1pt}\setlength{\topsep}{0pt}
-\item \textbf{Fade}, a training-free memory policy for the attention layers of a hybrid model. At 32K tokens it cuts memory per sample from 1,073\,MiB to 368\,MiB (4-bit) or 248\,MiB (2-bit), and a benchmark with real packed low-bit storage confirms this accounting.
-\item \textbf{A pre-registered comparison} on Qwen3.5-9B: 4-bit Fade shows no detectable loss against full attention; 2-bit Fade beats an 8K window that keeps the prompt with less memory (a modest gain), and it is far better than StreamingLLM~\cite{streamingllm}.
-\item \textbf{How a low-bit memory fails}: the model still answers correctly when it finishes, but it reasons for longer and hits the token limit more often, mainly on the longest problems.
+\item \textbf{Fade}, a training-free memory policy for the attention layers of a hybrid model. At 32K tokens its analytic memory per sample falls from 1,073\,MiB to 368\,MiB (4-bit) or 248\,MiB (2-bit), and a benchmark with real packed low-bit storage matches this accounting to within 10\%.
+\item \textbf{A pre-registered comparison} on Qwen3.5-9B: 4-bit Fade shows no detectable loss against full attention; 2-bit Fade beats an 8K window that keeps the prompt at 0.70$\times$ its analytic memory (a post hoc split puts the whole gain on one of two seed pairs), and it is far better than StreamingLLM~\cite{streamingllm}.
+\item \textbf{How a low-bit memory fails}: the model still answers correctly when it finishes, but it reasons for longer and hits the token limit more often, mainly on the longest problems (exploratory).
 \end{itemize}
 
 \vspace{-0.6em}
 \section{Related Work}
 \vspace{-0.4em}
-\paragraph{KV-cache quantization.} KIVI~\cite{kivi} quantizes keys per channel and values per token and keeps the most recent tokens in full precision; Fade uses this quantizer. KVQuant~\cite{kvquant} quantizes keys before RoPE, SKVQ~\cite{skvq} keeps a sliding window of exact recent tokens, and rotations spread outliers before quantizing (QuaRot~\cite{quarot}, QJL~\cite{qjl}, TurboQuant~\cite{turboquant}). We do not propose a new quantizer; any of these could replace KIVI inside Fade. What is new is where it is applied (only the attention layers of a hybrid, with the prompt exact) and the test: long reasoning, against eviction at matched memory.
+\paragraph{KV-cache quantization.} KIVI~\cite{kivi} quantizes keys per channel and values per token and keeps the most recent tokens in full precision; Fade uses this quantizer. KVQuant~\cite{kvquant} quantizes keys before RoPE, SKVQ~\cite{skvq} keeps a sliding window of exact recent tokens, and rotations spread outliers before quantizing (QuaRot~\cite{quarot}, QJL~\cite{qjl}, TurboQuant~\cite{turboquant}). We do not propose a new quantizer; any of these could replace KIVI inside Fade (untested). What is new is where it is applied (only the attention layers of a hybrid, with the prompt exact) and the test: long reasoning, against eviction at matched memory.
 
 \paragraph{KV compression for long reasoning.} R-KV~\cite{rkv} and RaaS~\cite{raas} evict redundant or finished tokens during decoding. PM-KVQ~\cite{pmkvq} lowers bit-widths progressively; ThinKV~\cite{thinkv} mixes quantization and eviction by thought type and reports that aggressive compression lengthens reasoning. Closest to us, BreadthKV~\cite{breadthkv} finds on dense reasoning models that, at a matched byte budget, keeping more tokens at lower precision beats eviction, mainly by reducing runs that hit the length limit. We test the same trade-off in a hybrid, where only one layer in four has a growing cache. Our eviction baselines choose tokens by position; we do not compare with score-based eviction such as R-KV.
 
@@ -119,7 +119,7 @@ where $n_{\text{old}}$ counts the quantized tokens. At 32K tokens: full attentio
 \centering
 \includegraphics[width=0.66\linewidth]{figures/fig_fade_frontier.png}
 \vspace{-0.6em}
-\caption{Accuracy vs memory. Forgetting (blue: prompt + last $W$ tokens) loses accuracy fast as memory shrinks; Fade (orange) stays close to full attention. StreamingLLM-8K (green) drops the prompt too and collapses. Bars are 95\% CIs; the arrow is the pre-registered primary comparison. Memory is the analytic mean per sample over each run; the 8K window is drawn 3\% to the right so it does not hide Fade-4.}
+\caption{Accuracy vs memory. Forgetting (blue: prompt + last $W$ tokens) loses accuracy fast as memory shrinks; Fade (orange) stays close to full attention. StreamingLLM-8K (green) drops the prompt too and collapses. Bars are 95\% CIs; the arrow is the pre-registered primary comparison. 4 samples per cell; StreamingLLM-8K 2. Memory is the analytic mean per sample over each run; the 8K window is drawn 3\% to the right so it does not hide Fade-4.}
 \label{fig:frontier}
 \vspace{-0.6em}
 \end{figure}
@@ -129,7 +129,7 @@ where $n_{\text{old}}$ counts the quantized tokens. At 32K tokens: full attentio
 \vspace{-0.4em}
 \subsection{Setup}
 \vspace{-0.3em}
-\textbf{Data.} 120 competition math problems, 30 from each of AIME 2025, AIME 2026 and HMMT February 2025 (via MathArena~\cite{matharena}) and MATH-500 level 5~\cite{hendrycksmath,math500}, the same set as Think-Local. \textbf{Decoding.} Qwen3.5-9B in thinking mode, sampling at temperature 1.0, with a 32,768-token limit and 4 samples per problem. A run that hits the limit counts as wrong. \textbf{Statistics.} Every comparison is paired by problem, with 95\% confidence intervals (CIs) from a bootstrap over problems. \textbf{Pre-registration.} The questions, the primary comparison (Fade-2 vs the 8K window at matched memory) and the wording of each verdict were fixed before any result, and an independent audit agent reproduced every decode number from the raw runs. Analyses added later are labelled post hoc or exploratory. Full details are in Appendix~\ref{app:impl}.
+\textbf{Data.} 120 competition math problems, 30 from each of AIME 2025, AIME 2026 and HMMT February 2025 (via MathArena~\cite{matharena}) and MATH-500 level 5~\cite{hendrycksmath,math500}, the same set as Think-Local. \textbf{Decoding.} Qwen3.5-9B in thinking mode, sampling at temperature 1.0, with a 32,768-token limit and 4 samples per problem. A run that hits the limit counts as wrong. \textbf{Statistics.} Every comparison is paired by problem, with 95\% confidence intervals (CIs) from a bootstrap over problems. \textbf{Pre-registration.} The questions, the primary comparison (Fade-2 vs the 8K window at matched memory) and the wording of each verdict were fixed before any decode result, and an independent audit agent reproduced every decode number from the raw runs. Analyses added later are labelled post hoc or exploratory. Full details are in Appendix~\ref{app:impl}.
 
 \subsection{Baselines}
 \vspace{-0.3em}
@@ -137,12 +137,12 @@ All baselines use the same model, decoding loop and scorer, and change only what
 \begin{itemize}\setlength{\itemsep}{1pt}\setlength{\topsep}{0pt}
 \item \textbf{Full attention:} the exact cache (the upper bound).
 \item \textbf{Windows that keep the prompt (2K, 4K, 8K):} the prompt plus the last $W$ generated tokens, from Think-Local. The \textbf{8K window} is the pre-registered matched-memory comparator.
-\item \textbf{StreamingLLM-8K}~\cite{streamingllm}: 4 ``sink'' tokens plus the last 8,192 tokens, so the prompt is dropped once the window fills. Run with 2 samples per problem; its comparisons use the same 2 samples of every cell.
+\item \textbf{StreamingLLM-8K}~\cite{streamingllm}: 4 ``sink'' tokens plus the last 8,192 tokens, so the prompt is dropped once the window fills. Added after the project was refocused; its analysis was registered before any of its runs. Run with 2 samples per problem; its comparisons use the same 2 samples of every cell.
 \end{itemize}
 
 \subsection{Implementation Details}
 \vspace{-0.3em}
-The decoding loop uses Hugging Face Transformers with the \texttt{fla} kernels for GDN, in bf16, with continuous batching, on NVIDIA A100-80GB GPUs. Each cell has 480 runs (120 problems $\times$ 4 samples; 240 for StreamingLLM-8K). The full-attention and window runs are reused from Think-Local. All new runs took about 19 GPU-hours on the lab's own GPUs (Appendix~\ref{app:prereg}).
+The decoding loop uses Hugging Face Transformers with the \texttt{fla} kernels for GDN, in bf16, with continuous batching, on NVIDIA A100-80GB GPUs. Each cell has 480 runs (120 problems $\times$ 4 samples; 240 for StreamingLLM-8K). The full-attention and window runs are reused from Think-Local; Fade's runs used a later build of the same loop. This project's runs took about 16 GPU-hours plus 2.7 for StreamingLLM-8K and 0.5 for the memory benchmark, on the lab's own GPUs (Appendix~\ref{app:prereg}).
 
 \vspace{-0.6em}
 \section{Results}
@@ -173,7 +173,7 @@ StreamingLLM-8K & dropped, prompt too & 295 & 305 & 12.5 [7.5, 17.9] & 43.3 \\
 \end{table}
 
 \begin{table}[t]
-\caption{Key paired comparisons (accuracy difference in percentage points, 95\% CI). Memory: ratio of analytic mean memory per sample. StreamingLLM rows use the same 2 samples per problem for both methods. All comparisons are in Appendix~\ref{app:details}.}
+\caption{Key paired comparisons (accuracy difference in percentage points, 95\% CI). Memory: ratio of analytic mean memory per sample. StreamingLLM rows use the same 2 samples per problem for both methods; their memory ratio leaves out the prompt's KV, which Fade keeps, so counting it the ratio is slightly higher. All comparisons are in Appendix~\ref{app:details}.}
 \label{tab:contrasts}
 \centering
 \small
@@ -183,8 +183,8 @@ StreamingLLM-8K & dropped, prompt too & 295 & 305 & 12.5 [7.5, 17.9] & 43.3 \\
 Comparison & Difference [95\% CI] & Memory & Verdict \\
 \midrule
 Fade-4 $-$ Full & $+0.4$ \ci{-2.7}{+3.5} & 0.37$\times$ & no detectable difference \\
-Fade-2 $-$ Full & $-5.6$ \ci{-8.8}{-2.7} & 0.27$\times$ & worse \\
-\textbf{Fade-2 $-$ 8K window (primary)} & $+3.8$ \ci{+1.0}{+6.7} & 0.70$\times$ & better at matched memory; all of the gain in one of two seed pairs \\
+Fade-2 $-$ Full & $-5.6$ \ci{-8.8}{-2.7} & 0.27$\times$ & worse; not shown non-inferior (5\pp\ margin) \\
+\textbf{Fade-2 $-$ 8K window (primary)} & $+3.8$ \ci{+1.0}{+6.7} & 0.70$\times$ & better at matched memory; all of the gain in one of two seed pairs (post hoc) \\
 Fade-2 $-$ StreamingLLM-8K & $+49.2$ \ci{+41.2}{+57.1} & 0.71$\times$ & better at matched memory \\
 \bottomrule
 \end{tabularx}
@@ -193,33 +193,33 @@ Fade-2 $-$ StreamingLLM-8K & $+49.2$ \ci{+41.2}{+57.1} & 0.71$\times$ & better a
 
 Figure~\ref{fig:frontier} shows the main picture, Table~\ref{tab:main} the numbers and Table~\ref{tab:contrasts} the key comparisons. We go through the findings one at a time.
 
-\takeaway{1. 4-bit Fade: no detectable loss at 37\% of the memory.} 4-bit Fade scores 66.2\% against full attention's 65.8\% ($+0.4$\pp, CI $-2.7$ to $+3.5$), with the same rate of runs hitting the limit. The CI rules out a loss larger than about 3 points; it does not prove the two are equal.
+\takeaway{1. 4-bit Fade: no detectable loss at 37\% of the analytic memory.} 4-bit Fade scores 66.2\% against full attention's 65.8\% ($+0.4$\pp, CI $-2.7$ to $+3.5$), with no detectable change in the rate of runs hitting the limit (33.1\% vs 34.0\%). The CI excludes a loss larger than 2.7 points; it does not prove the two are equal.
 
-\takeaway{2. 2-bit Fade costs a few points but beats forgetting at matched memory.} Against full attention, 2-bit Fade loses 5.6 points at 27\% of the memory, so it is not a free lunch. Against the 8K window, the pre-registered comparison, it is better by 3.8 points (CI $+1.0$ to $+6.7$) with 0.70$\times$ the memory. The gain is modest: a post hoc split by seed pair puts all of it in seeds 0--1 ($+7.9$\pp), with no detectable difference in seeds 2--3 ($-0.4$\pp). Going from 0 to 2 bits per old token recovers 34 of the 40 points that the 2K window loses.
+\takeaway{2. 2-bit Fade costs a few points but beats forgetting at matched memory.} Against full attention, 2-bit Fade loses 5.6 points at 27\% of the analytic memory, so it is not a free lunch. Against the 8K window, the pre-registered comparison, it is better by 3.8 points (CI $+1.0$ to $+6.7$) with 0.70$\times$ the analytic memory. The gain is modest: a post hoc split by seed pair puts all of it in seeds 0--1 ($+7.9$\pp), with no detectable difference in seeds 2--3 ($-0.4$\pp). Going from 0 to 2 bits per old token recovers 34 of the 40 points that the 2K window loses (Q2 curve; descriptive).
 
-\takeaway{3. Dropping the prompt is much worse.} StreamingLLM-8K keeps the same number of recent tokens as the 8K window but drops the prompt, and it reaches only 12.5\%. 2-bit Fade beats it by 49.2 points with 0.71$\times$ its memory. Unlike every other method, most of its finished runs are wrong (Figure~\ref{fig:outcomes}a), and almost all of these (104 of 106) give no parsable answer once the prompt has been dropped; we do not test why (Appendix~\ref{app:details}).
+\takeaway{3. Dropping the prompt is much worse.} StreamingLLM-8K keeps the same number of recent tokens as the 8K window but drops the prompt, and it reaches only 12.5\%. 2-bit Fade beats it by 49.2 points with 0.71$\times$ its analytic memory (slightly more if the prompt's KV, which Fade keeps, is counted). Unlike every other method, most of its finished runs are wrong (Figure~\ref{fig:outcomes}a), and almost all of these (104 of 106) give no parsable answer once the prompt has been dropped; we do not test why (Appendix~\ref{app:details}).
 
 \begin{figure}[t]
 \centering
 \includegraphics[width=\linewidth]{figures/fig_fade_outcomes.png}
 \vspace{-1.4em}
-\caption{How runs fail. (a) Share of runs that end correct, finish with a wrong answer, or hit the 32K-token limit (*StreamingLLM-8K: 2 samples per problem). Fade and the windows almost never finish wrong; they fail by running out of tokens. (b) Exploratory: accuracy within bins of full attention's average trace length per problem. All methods are near 100\% on short problems; the differences appear on problems whose traces exceed 16K tokens.}
+\caption{How runs fail. (a) Share of runs that end correct, finish with a wrong answer, or hit the 32K-token limit (*StreamingLLM-8K: 2 samples per problem). Fade and the windows almost never finish wrong; they fail by running out of tokens. (b) Exploratory: accuracy within bins of full attention's average trace length per problem. All methods are near 100\% on short problems; the loss to full attention appears on problems whose traces exceed 16K tokens.}
 \label{fig:outcomes}
 \vspace{-0.6em}
 \end{figure}
 
-\takeaway{4. How Fade fails: longer reasoning, not wrong answers.} Every finished 2-bit run is correct (289 of 289). The loss comes from runs that hit the token limit (39.8\% vs 34.0\% for full attention), and finished 2-bit runs are about 860 tokens longer. This matches the lengthening reported for aggressive KV compression on dense models~\cite{thinkv,breadthkv}. As Figure~\ref{fig:outcomes}b shows (exploratory), all methods solve the short problems; the loss to full attention appears on problems whose traces exceed 16K tokens, and the gain over the window is clearest beyond 24K, where the window has dropped most of the trace. A teacher-forced analysis shows the same pattern: the window's error grows with position while 2-bit Fade's stays nearly flat (Appendix~\ref{app:kl}).
+\takeaway{4. How Fade fails: longer reasoning, not wrong answers.} Every finished 2-bit run is correct (289 of 289). The loss comes from runs that hit the token limit (39.8\% vs 34.0\% for full attention), and finished 2-bit runs are about 860 tokens longer. This matches the lengthening reported for aggressive KV compression on dense models~\cite{thinkv,breadthkv}. As Figure~\ref{fig:outcomes}b shows (exploratory), all methods solve the short problems; the loss to full attention appears on problems whose traces exceed 16K tokens, and the gain over the window is clearest beyond 24K, where the window has dropped most of the trace. An exploratory teacher-forced analysis (to 24.6K tokens) is consistent with this: the window's error grows with position while 2-bit Fade's stays nearly flat (Appendix~\ref{app:kl}).
 
-\takeaway{5. The memory savings are real.} A benchmark that stores real packed 2- and 4-bit codes on an A100 matched the analytic memory to within the pre-registered 10\% for every method and context length; at 32K tokens, 2-bit Fade uses 0.83$\times$ the memory of the 8K window and 0.24$\times$ that of full attention. Peak memory during decoding is slightly higher for Fade (0.90$\times$ the window's). Our prototype dequantizes in plain PyTorch and is slower than full attention, so we make no speed claim; that needs a fused kernel (Appendix~\ref{app:mem}).
+\takeaway{5. The memory savings are real.} A benchmark that stores real packed 2- and 4-bit codes on an A100 matched the analytic memory to within the pre-registered 10\% for every method and context length; at 32K tokens, 2-bit Fade uses 0.83$\times$ the state memory (batch 32) of the 8K window and 0.24$\times$ that of full attention. On peak memory during decoding the ratio is 0.90$\times$ (the prototype's peak is above its state memory, more so for Fade). Our prototype dequantizes in plain PyTorch and is slower than full attention, so we make no speed claim; that needs a fused kernel (Appendix~\ref{app:mem}).
 
 \vspace{-0.6em}
 \section{Discussion}
 \vspace{-0.4em}
-In a hybrid reasoning model, the growing attention memory can be blurred but not cut. Dropping old tokens by position fails, while storing them coarsely works: 4 bits shows no detectable loss, and 2 bits beats a window of the same memory. This fits the attention maps, where every head reads far back. Dropping the prompt is far worse still. Fade's failure mode is a weaker version of forgetting's: the model does not answer wrongly; it runs longer and hits the limit more often. Exploratory tests suggest that the hybrid tolerates 2-bit attention memory better than a dense model in total, simply because it has fewer attention layers to quantize, and that a short burst of blurring leaves no lasting error above numerical noise (teacher-forced; Appendices~\ref{app:dense}--\ref{app:pulse}).
+In a hybrid reasoning model, the growing attention memory can be blurred but not cut. Dropping old tokens by position fails, while storing them coarsely works: 4 bits shows no detectable loss, and 2 bits beats a window of matched analytic memory, though a post hoc split puts the whole gain on one of two seed pairs. This is consistent with the exploratory attention maps (not audited), where every head reads far back. Dropping the prompt is far worse still. Fade's failure mode is a weaker version of forgetting's: the model does not answer wrongly; it runs longer and hits the limit more often. Exploratory tests suggest that the hybrid tolerates 2-bit attention memory better than a dense model in total, consistent with it having fewer attention layers to quantize (per quantized layer it is not more tolerant, and we find no evidence that the recurrent layers absorb the noise), and that a short burst of blurring leaves no persistent error detectable above twice the numerical floor (teacher-forced; Appendices~\ref{app:dense}--\ref{app:pulse}).
 
 \paragraph{Limitations.}
 \begin{itemize}\setlength{\itemsep}{1pt}\setlength{\topsep}{0pt}
-\item \emph{Emulation, no speed claim:} accuracy comes from emulated low-bit storage; memory is analytic, checked with a benchmark; there is no fused kernel, and our prototype is slower than full attention.
+\item \emph{Emulation, no speed claim:} accuracy comes from emulated low-bit storage; memory is analytic, checked against the state memory of a real packed benchmark; peak memory is higher, more so for Fade; there is no fused kernel, and our prototype is slower than full attention.
 \item \emph{Scope:} one model, math only, 4 samples per problem (2 for StreamingLLM), one quantizer family and one recent-window size.
 \item \emph{Baselines:} our eviction baselines choose tokens by position; score-based eviction such as R-KV~\cite{rkv} and other quantizers such as KVQuant~\cite{kvquant} were not tested.
 \item \emph{Fragile primary result:} the 2-bit gain over the window sits entirely in one of two seed pairs (post hoc).
@@ -307,7 +307,7 @@ Exploratory maps on 40 held-out MATH-500 level-5 traces (teacher-forced, not in 
 \caption{KL(full $\|$ policy) per token on 40 held-out traces (841,368 scored tokens, generated positions 2,048 to $\le$24,576), with a trace-level bootstrap CI. Memory: analytic per sample at 32K generated tokens, prompt KV left out. Exploratory; audited.}
 \centering
 \small
-\setlength{\tabcolsep}{4pt}
+\setlength{\tabcolsep}{3pt}
 \begin{tabular}{@{}lccrc@{}}
 \toprule
 Older tokens & Effective bits & MiB at 32K & KL / token [95\% CI] & Top-1 agreement \\
