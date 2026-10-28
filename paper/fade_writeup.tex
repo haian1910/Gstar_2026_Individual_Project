@@ -38,7 +38,7 @@
 \newcommand{\ci}[2]{[$#1$, $#2$]}
 \newcommand{\takeaway}[1]{\paragraph{#1}}
 
-\title{Fade, Don't Forget:\\Low-Bit Attention Memory for Hybrid Reasoning Models}
+\title{Fade, Don't Forget:\\Low-Bit Attention Memory\\for Hybrid Reasoning Models}
 
 \author{%
   Vu Hai An \\
@@ -95,7 +95,7 @@ If every head needs old tokens, a cheaper memory has to keep all of them, just l
 \centering
 \includegraphics[width=0.92\linewidth]{figures/fig_fade_schematic.png}
 \vspace{-0.6em}
-\caption{What the attention layers keep of one 32K-token reasoning trace. Dark: exact (bf16); hatched: 2 or 4 bits; dashed: dropped. The GDN layers see every token in all four cases. Memory per sample at 32K is analytic (FA cache + 49\,MiB GDN state), with the prompt's KV left out because samples share it.}
+\caption{What the attention layers keep of one 32K-token reasoning trace. Dark: exact (bf16); hatched: 2 or 4 bits; dashed: dropped. The GDN layers see every token in all four cases. Memory per sample at 32K is analytic (FA cache + 49\,MiB GDN state), with the prompt's KV left out, as for every cell (Appendix~\ref{app:details}).}
 \label{fig:schematic}
 \vspace{-0.8em}
 \end{figure}
@@ -142,7 +142,7 @@ All baselines use the same model, decoding loop and scorer, and change only what
 
 \subsection{Implementation Details}
 \vspace{-0.3em}
-The decoding loop uses Hugging Face Transformers with the \texttt{fla} kernels for GDN, in bf16, with continuous batching, on NVIDIA A100-80GB GPUs. Each cell has 480 runs (120 problems $\times$ 4 samples; 240 for StreamingLLM-8K). The full-attention and window runs are reused from Think-Local; Fade's runs used a later build of the same loop. This project's runs took about 16 GPU-hours plus 2.7 for StreamingLLM-8K and 0.5 for the memory benchmark, on the lab's own GPUs (Appendix~\ref{app:prereg}).
+The decoding loop uses Hugging Face Transformers with the \texttt{fla} kernels for GDN, in bf16, with continuous batching, on NVIDIA A100-80GB GPUs. Each cell has 480 runs (120 problems $\times$ 4 samples; 240 for StreamingLLM-8K). The full-attention and window runs are reused from Think-Local; Fade's runs used a later build of the same loop. This project's runs took about 15 GPU-hours plus 2.7 for StreamingLLM-8K and 0.5 for the memory benchmark, on the lab's own GPUs (Appendix~\ref{app:prereg}).
 
 \vspace{-0.6em}
 \section{Results}
@@ -288,7 +288,7 @@ In a hybrid reasoning model, the growing attention memory can be blurred but not
 
 \section{Motivation: Think-Local and the attention maps}
 \label{app:tl}
-Think-Local (pre-registered; same 120 problems, sampler and cap; $k{=}4$) restricted each FA layer to the prompt plus the last $W$ generated tokens. Accuracy against full attention (65.8\%): W1K 14.8\% ($-51.0$\pp, $-58.3$ to $-43.8$), W2K 25.8\% ($-40.0$, $-47.1$ to $-32.9$; the registered primary), W4K 42.9\% ($-22.9$, $-28.5$ to $-17.5$), W8K 56.5\% ($-9.4$; added post hoc). Evicting the prompt as well (StreamingLLM-2K) gave 1.2\%. Windowed runs that finished were right (672 of 673 on math); the loss was runs that never finished, and it grew with the length of the derivation.
+Think-Local (pre-registered; same 120 problems, sampler and cap; $k{=}4$) restricted each FA layer to the prompt plus the last $W$ generated tokens. Accuracy against full attention (65.8\%): W1K 14.8\% ($-51.0$\pp, $-58.3$ to $-43.8$), W2K 25.8\% ($-40.0$, $-47.1$ to $-32.9$; the registered primary), W4K 42.9\% ($-22.9$, $-28.5$ to $-17.5$), W8K 56.5\% ($-9.4$; added post hoc in Think-Local). Evicting the prompt as well (StreamingLLM-2K) gave 1.2\%. Windowed runs that finished were right (672 of 673 on math); the loss was runs that never finished, and it grew with the length of the derivation.
 
 Exploratory maps on 40 held-out MATH-500 level-5 traces (teacher-forced, not in the test set, not audited): every one of the 32 FA KV heads puts 0.19--0.46 of its attention weight on generated tokens more than 2K back, so no head is local and none is a dedicated far-reader. Keeping 4 heads at full attention and windowing the other 28 leaves 86--94\% of the window's KL, for the 4 most sensitive heads and for each of 5 random sets of 4 (not every set was tested). Keeping the two most sensitive layers (model layers 11 and 15) at full attention still leaves 53\% of it.
 
@@ -427,7 +427,7 @@ To check the analytic accounting, a benchmark (\texttt{fade\_mem.py}, registered
 
 \paragraph{Decoding and statistics.} Thinking mode with temperature 1.0, top-$p$ 0.95, top-$k$ 20 and presence penalty 1.5, under a 32,768-token cap; answers are scored automatically. Seeds are shared across cells only nominally (batch composition changes bf16 reduction order), so every contrast is paired by problem. CIs are two-sided 95\% intervals from a cluster bootstrap over problems, stratified by dataset (10,000 resamples). The registered questions: the primary contrast Fade-2 $-$ TL-W8K at matched memory; Q1, Fade-2 $-$ full attention with a 5\pp\ non-inferiority margin; Q2, the curve from 0 to 16 bits; Q3, token counts.
 
-\paragraph{Software and runs.} Hugging Face Transformers 5.19 with PyTorch 2.13 (CUDA 13.0) and the \texttt{fla} 0.6.0 kernels for GDN, in bf16, with a continuous-batching pool. Full, TL and Fade-4/Fade-2 each have 480 runs, and StreamingLLM-8K has 240. The full-attention and window runs are reused from Think-Local; Fade's runs used a later build of the same loop. The new Fade decodes took 11.5 GPU-hours on NVIDIA A100-80GB GPUs, and all of this project's runs about 16 GPU-hours plus 2.7 for StreamingLLM-8K and 0.5 for the memory benchmark, on the lab's own GPUs (no paid compute).
+\paragraph{Software and runs.} Hugging Face Transformers 5.19 with PyTorch 2.13 (CUDA 13.0) and the \texttt{fla} 0.6.0 kernels for GDN, in bf16, with a continuous-batching pool. Full, TL and Fade-4/Fade-2 each have 480 runs, and StreamingLLM-8K has 240. The full-attention and window runs are reused from Think-Local; Fade's runs used a later build of the same loop. The new Fade decodes took 11.5 GPU-hours on NVIDIA A100-80GB GPUs, and all of this project's runs about 15 GPU-hours plus 2.7 for StreamingLLM-8K and 0.5 for the memory benchmark, on the lab's own GPUs (no paid compute).
 
 \paragraph{Other limitations.} The cells were picked by teacher-forced KL, and Hadamard vs plain at 2 bits was a near-tie that did not transfer to a second task (Countdown, where Hadamard was worse at every position); plain 2-bit was not decoded. Fade also ran on a later build of the decode loop than the reused baselines.
 
